@@ -23,14 +23,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("license file must have publication link to download"),
     )?
     .bytes()?;
-    let mut file = File::create(PathBuf::from(format!("{}.epub", &license.id)))?;
+    let encrypted_file = PathBuf::from(format!("{}.epub", &license.id));
+    let mut file = File::create(&encrypted_file)?;
     file.write_all(&resp)?;
-    let epub = epub::Epub::new(PathBuf::from(&license.id), license).unwrap();
+    let epub = epub::Epub::new(encrypted_file, license).unwrap();
 
-    for file in epub.metadata() {
-        dbg!(&file);
-    }
-    // println!("{:?}", &epub.encryption().unwrap());
     println!("{:?}", &epub.license());
     Ok(())
 }

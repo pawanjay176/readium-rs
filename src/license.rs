@@ -1,17 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{certificate_format, date_format, epub, optional_date_format};
-use base64::{
-    Engine,
-    engine::{self, general_purpose},
-};
 use chrono::{DateTime, FixedOffset};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::ops::Not;
 use x509_cert::Certificate;
-use x509_cert::der::Decode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EncryptionAlgorithm {
@@ -362,12 +357,5 @@ mod tests {
         });
         let signature: Signature = serde_json::from_value(signature_json).unwrap();
         dbg!(signature.certificate);
-    }
-
-    #[test]
-    fn test_real_lcpl() {
-        let file = File::open("/Users/work/rust/readium-rs/9781662536939.lcpl").unwrap();
-        let license: License = serde_json::from_reader(file).unwrap();
-        dbg!(&license);
     }
 }

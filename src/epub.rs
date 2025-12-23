@@ -1,5 +1,3 @@
-use roxmltree::Document;
-use std::sync::Arc;
 use std::{fs::File, io::Read, path::PathBuf};
 use zip::ZipArchive;
 
@@ -16,14 +14,6 @@ pub const CONTENT_TYPE_HTML: &str = "text/html";
 pub const CONTENT_TYPE_NCX: &str = "application/x-dtbncx+xml";
 pub const CONTENT_TYPE_EPUB: &str = "application/epub+zip";
 
-/// Given an ebpub file, unzip it and view list all internal resources
-#[derive(Debug)]
-pub struct Epub {
-    archive: ZipArchive<File>,
-    container: String,
-    encryption: Option<String>,
-    license: License,
-}
 
 fn read_file_from_archive(
     archive: &mut ZipArchive<File>,
@@ -41,6 +31,18 @@ fn read_file_from_archive(
         .map_err(|e| format!("Invalid string data in container.xml, err: {}", e))
 }
 
+
+/// Given an ebpub file, unzip it and view list all internal resources
+#[derive(Debug)]
+pub struct Epub {
+    archive: ZipArchive<File>,
+    container: String,
+    encryption: Option<String>,
+    license: License,
+}
+
+
+
 impl Epub {
     pub fn new(path: PathBuf, license: License) -> Result<Self, String> {
         let epub_file = File::open(&path).map_err(|e| format!("Unable to open file {}", e))?;
@@ -55,18 +57,6 @@ impl Epub {
             encryption,
             license,
         })
-    }
-
-    pub fn metadata(&self) -> impl Iterator<Item = &str> {
-        self.archive.file_names()
-        // .filter(|filename| filename.starts_with("META-INF"))
-    }
-
-    pub fn encryption(&self) -> Option<roxmltree::Document> {
-        match &self.encryption {
-            Some(enc) => roxmltree::Document::parse(&enc).ok(),
-            None => None,
-        }
     }
 
     pub fn license(&self) -> &License {
