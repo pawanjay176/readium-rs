@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use crate::{certificate_format, date_format, epub, optional_date_format};
+use crate::{certificate_format, cipher, date_format, epub, optional_date_format};
 use chrono::{DateTime, FixedOffset};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::ops::Not;
 use x509_cert::Certificate;
@@ -91,11 +92,15 @@ pub struct Rights {
     /// Maximum number of characters that can be copied to the clipboard over the lifetime of the license.
     copy: usize,
     /// Date and time when the license begins.
-    #[serde(with = "date_format")]
-    start: DateTime<FixedOffset>,
+    #[serde(with = "optional_date_format")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    start: Option<DateTime<FixedOffset>>,
     /// Date and time when the license ends.
-    #[serde(with = "date_format")]
-    end: DateTime<FixedOffset>,
+    #[serde(with = "optional_date_format")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    end: Option<DateTime<FixedOffset>>,
     /// Additional optional entries
     #[serde(flatten)]
     additional_fields: HashMap<String, serde_json::Value>,
@@ -192,6 +197,70 @@ impl License {
                 None
             }
         })
+    }
+
+    pub fn key_check(&self, passphrase: &str) -> Result<([u8; 32], [u8; 16]), String> {
+        let user_key: [u8; 32] = Sha256::digest(&passphrase).into();
+        use base64::{
+            Engine as _,
+            engine::{self, general_purpose},
+        };
+
+        let key_check_bytes = general_purpose::STANDARD
+            .decode(&self.encryption.user_key.key_check)
+            .map_err(|e| format!("Base64 decode failed, err: {:?}", e))?;
+
+        let iv: [u8; 16] = key_check_bytes[0..16]
+            .try_into()
+            .map_err(|_| "Not enough key_check bytes".to_string())?;
+
+        let ciphertext: &[u8] = &key_check_bytes[16..];
+        let decrypted_bytes =
+            cipher::aes_cbc256::decrypt_aes_256_cbc(ciphertext, &user_key, &iv).unwrap();
+        if decrypted_bytes.as_slice() == self.id.as_bytes() {
+            return Ok((user_key, iv));
+        } else {
+            return Err("key check failed".to_string());
+        }
+    }
+
+    pub fn decrypt_content_key(&self, user_key: &[u8; 32]) -> Result<[u8; 32], String> {
+        use base64::{
+            Engine as _,
+            engine::general_purpose,
+        };
+
+        // Base64-decode the encrypted content key
+        let encrypted_key_bytes = general_purpose::STANDARD
+            .decode(&self.encryption.content_key.encrypted_value)
+            .map_err(|e| format!("Base64 decode of content key failed, err: {:?}", e))?;
+
+        // Extract IV from first 16 bytes
+        let iv: [u8; 16] = encrypted_key_bytes[0..16]
+            .try_into()
+            .map_err(|_| "Not enough bytes for IV in encrypted content key".to_string())?;
+
+        // Extract ciphertext from remaining bytes (after IV)
+        let ciphertext: &[u8] = &encrypted_key_bytes[16..];
+
+        // Decrypt using user key
+        let decrypted_key = cipher::aes_cbc256::decrypt_aes_256_cbc(ciphertext, user_key, &iv)
+            .map_err(|e| format!("Failed to decrypt content key: {}", e))?;
+
+        // Validate that decrypted key is exactly 32 bytes (AES-256 key size)
+        if decrypted_key.len() != 32 {
+            return Err(format!(
+                "Decrypted content key has invalid length: expected 32 bytes, got {}",
+                decrypted_key.len()
+            ));
+        }
+
+        // Convert to [u8; 32] array
+        let content_key: [u8; 32] = decrypted_key
+            .try_into()
+            .map_err(|_| "Failed to convert decrypted content key to array".to_string())?;
+
+        Ok(content_key)
     }
 }
 

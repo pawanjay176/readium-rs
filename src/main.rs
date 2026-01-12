@@ -1,12 +1,12 @@
 use clap::Parser;
-use readium_rs::{epub, license::License};
-use std::{fs::File, io::Write, path::PathBuf};
+use readium_lcp::epub;
+use std::path::PathBuf;
 
 /// lcpencrypt encrypts a publication using the LCP DRM
 #[derive(Parser, Debug)]
 #[command(about = "Encrypts publications using the LCP DRM", long_about = None)]
 pub struct Args {
-    /// Path for license lcpl file
+    /// Path for encrypted epub
     #[arg(short, long)]
     pub input: PathBuf,
 }
@@ -14,20 +14,15 @@ pub struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // Parse license and write epub
-    let lcpl_file = File::open(args.input)?;
-    let license: License = serde_json::from_reader(&lcpl_file)?;
-    let resp = reqwest::blocking::get(
-        license
-            .publication_link()
-            .expect("license file must have publication link to download"),
-    )?
-    .bytes()?;
-    let encrypted_file = PathBuf::from(format!("{}.epub", &license.id));
-    let mut file = File::create(&encrypted_file)?;
-    file.write_all(&resp)?;
-    let epub = epub::Epub::new(encrypted_file, license).unwrap();
+    // Open epub file
+    let mut epub = epub::Epub::new(args.input).unwrap();
 
-    println!("{:?}", &epub.license());
+    // Try verifying passphrase by decrypting content key
+    let user_key = {
+        let license = epub.license().unwrap();
+        license.key_check("test1234").unwrap().0
+    };
+    epub.decrypt_encrypted_content(&user_key).unwrap();
+
     Ok(())
 }
